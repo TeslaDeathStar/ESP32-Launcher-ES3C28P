@@ -444,17 +444,31 @@ RESTART:
 
 static String installedAppNameFromPath(const String &path) { return launcherInstallAppDisplayName(path); }
 
+static String sdFlashLastError;
+
 static bool flashRawFromSd(
-    File &file, uint32_t sourceOffset, size_t imageSize, const LauncherPartitionEntry &target, bool appImage
+    File &file, const String &path, uint32_t sourceOffset, size_t imageSize,
+    const LauncherPartitionEntry &target, bool appImage
 ) {
-    if (!file.seek(sourceOffset)) return false;
+    sdFlashLastError = "";
+    if (!file.seek(sourceOffset)) {
+        sdFlashLastError = "SD seek failed";
+        launcherConsolePrintf("%s at offset 0x%08X\n", sdFlashLastError.c_str(), (unsigned)sourceOffset);
+        launcherUpdateAbort();
+        return false;
+    }
     progressHandler(0, imageSize);
-    if (!launcherRawUpdateBegin(target.offset, target.size, imageSize, appImage)) return false;
+    if (!launcherRawUpdateBegin(target.offset, target.size, imageSize, appImage)) {
+        sdFlashLastError = launcherUpdateLastErrorName();
+        return false;
+    }
 
     constexpr size_t bufferSize = 4096;
     std::unique_ptr<uint8_t[]> buf(new (std::nothrow) uint8_t[bufferSize]);
     if (!buf) {
+        sdFlashLastError = "RAM alloc failed";
         launcherRawUpdateEnd();
+        launcherUpdateAbort();
         return false;
     }
 
@@ -464,25 +478,36 @@ static bool flashRawFromSd(
         int bytesRead = file.readBytes(reinterpret_cast<char *>(buf.get()), toRead);
         if (bytesRead <= 0) {
             launcherDelayMs(20);
-            if (!file.seek(sourceOffset + written)) {
+            // A short SD read can invalidate the underlying file cursor. Reopen the
+            // path before retrying so the recovery does not depend on that cursor.
+            file.close();
+            file = SDM.open(path);
+            if (!file || !file.seek(sourceOffset + written)) {
+                sdFlashLastError = file ? "SD re-seek failed" : "SD reopen failed";
                 launcherConsolePrintf(
-                    "SD read failed at offset 0x%08X (re-seek failed)\n", (unsigned)(sourceOffset + written)
+                    "SD read failed at offset 0x%08X (%s)\n",
+                    (unsigned)(sourceOffset + written),
+                    sdFlashLastError.c_str()
                 );
                 launcherRawUpdateEnd();
+                launcherUpdateAbort();
                 return false;
             }
             bytesRead = file.readBytes(reinterpret_cast<char *>(buf.get()), toRead);
         }
         if (bytesRead <= 0) {
-            launcherConsolePrintf("SD read failed at offset 0x%08X\n", (unsigned)(sourceOffset + written));
+            sdFlashLastError = "SD read failed";
+            launcherConsolePrintf("%s at offset 0x%08X\n", sdFlashLastError.c_str(), (unsigned)(sourceOffset + written));
             launcherRawUpdateEnd();
+            launcherUpdateAbort();
             return false;
         }
         if (launcherRawUpdateWrite(buf.get(), bytesRead) != static_cast<size_t>(bytesRead)) {
+            sdFlashLastError = launcherUpdateLastErrorName();
             launcherConsolePrintf(
                 "Flash write failed at partition offset 0x%08X (%s)\n",
                 (unsigned)written,
-                launcherUpdateLastErrorName()
+                sdFlashLastError.c_str()
             );
             launcherRawUpdateEnd();
             return false;
@@ -491,17 +516,22 @@ static bool flashRawFromSd(
         progressHandler(written, imageSize);
         launcherDelayMs(1);
     }
-    if (!launcherRawUpdateEnd()) return false;
+    if (!launcherRawUpdateEnd()) {
+        sdFlashLastError = String("Finalize failed: ") + launcherUpdateLastErrorName();
+        if (launcherUpdateLastError() == LAUNCHER_UPDATE_ERROR_OK) launcherUpdateAbort();
+        return false;
+    }
 
     if (!appImage) {
         String patchError;
         if (!launcherPatchReducedLittlefsSuperblocks(target, &patchError)) {
+            sdFlashLastError = patchError.length() ? patchError : "LittleFS patch failed";
             launcherConsolePrintf(
                 "LittleFS patch failed after SD copy label=%s offset=0x%08X size=0x%08X: %s\n",
                 target.label,
                 target.offset,
                 target.size,
-                patchError.c_str()
+                sdFlashLastError.c_str()
             );
             return false;
         }
@@ -532,6 +562,11 @@ boundedSdPartitionPayload(File &file, uint32_t offset, uint32_t declaredSize, ui
     if (offset == 0 || file.size() <= offset || declaredSize == 0) return 0;
     uint32_t availableSize = file.size() - offset;
     return launcherPartitionBoundedPayloadSize(declaredSize, 0, maxSize, availableSize);
+}
+
+static bool sdHasEspImageMagic(File &file, uint32_t offset) {
+    uint8_t magic = 0;
+    return readSdBytes(file, offset, &magic, 1) && magic == ESP_IMAGE_HEADER_MAGIC;
 }
 
 // A partition table entry can be present without actually carrying payload (e.g. the
@@ -653,8 +688,8 @@ static bool installFromSdDynamic(
     pauseSdInstallInput();
     bool success = false;
     prog_handler = 0;
-    if (!flashRawFromSd(file, appOffset, appSize, appEntry, true)) {
-        displayError(String("APP: ") + launcherUpdateLastErrorName());
+    if (!flashRawFromSd(file, path, appOffset, appSize, appEntry, true)) {
+        displayError(String("APP: ") + (sdFlashLastError.length() ? sdFlashLastError : launcherUpdateLastErrorName()));
         goto DONE;
     }
 
@@ -674,8 +709,8 @@ static bool installFromSdDynamic(
         displayRedStripe(String("Installing ") + typeStr);
         prog_handler = 1;
         const uint32_t copySize = dp.copySize > dp.entry.size ? dp.entry.size : dp.copySize;
-        if (!flashRawFromSd(file, dp.sourceOffset, copySize, dp.entry, false)) {
-            displayError(String(typeStr) + ": " + launcherUpdateLastErrorName());
+        if (!flashRawFromSd(file, path, dp.sourceOffset, copySize, dp.entry, false)) {
+            displayError(String(typeStr) + ": " + (sdFlashLastError.length() ? sdFlashLastError : launcherUpdateLastErrorName()));
             goto DONE;
         }
     }
@@ -794,6 +829,7 @@ void updateFromSD(const String &path) {
                 app_offset = readLe32(partitionEntry + 0x04);
                 if (file.size() < (declared_app_size + app_offset)) {
                     app_size = file.size() - app_offset;
+                    app_size = effectiveSdAppSize(file, app_offset, app_size);
                     launcherConsolePrintf(
                         "Using SD app tail size at 0x%06X: 0x%06X (%u bytes), declared partition was "
                         "0x%06X\n",
@@ -874,6 +910,21 @@ void updateFromSD(const String &path) {
                     payload.copySize,
                     declaredSize
                 );
+            }
+        }
+
+        if (!sdHasEspImageMagic(file, app_offset)) {
+            if (sdHasEspImageMagic(file, 0)) {
+                launcherConsolePrintf(
+                    "Partition table app offset 0x%06X has no ESP app header; using plain app image at 0x000000\n",
+                    app_offset
+                );
+                app_offset = 0;
+                app_size = effectiveSdAppSize(file, 0, file.size());
+                dataPartitions.clear();
+            } else {
+                displayError("Invalid app image");
+                goto Exit;
             }
         }
 
