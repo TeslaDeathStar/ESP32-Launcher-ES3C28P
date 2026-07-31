@@ -1,0 +1,366 @@
+---
+  name: Build and Push OR check-PR
+
+  on:
+    pull_request:
+      branches:
+        - main
+      paths:
+        - "**.h"
+        - "**.cpp"
+        - "**.py"
+        - "**.html"
+        - "**.css"
+        - "**.js"
+        - "**.ini"
+        - "**.json"
+        - "**.csv"
+    push:
+      branches:
+        - main
+        - dev
+      tags:
+        - "*"
+      paths:
+        - "**.h"
+        - "**.cpp"
+        - "**.py"
+        - "**.html"
+        - "**.css"
+        - "**.js"
+        - "**.ini"
+        - "**.json"
+        - "**.csv"
+    workflow_dispatch:
+
+  jobs:
+    compile_sketch:
+      name: Build ${{ matrix.board.env }}
+      runs-on: ubuntu-latest
+      strategy:
+        fail-fast: false
+        matrix:
+          board:
+            - { env: "arduino-nesso-n1"           }
+            - { env: "m5stack-cardputer"          }
+            - { env: "m5stack-cplus2"             }
+            - { env: "m5stack-cplus1_1"           }
+            - { env: "m5stack-c"                  }
+            - { env: "m5stack-core2"              }
+            - { env: "m5stack-core"               }
+            - { env: "m5stack-core-4Mb"           }
+            - { env: "m5stack-cores3"             }
+            - { env: "m5stack-dinmeter"           }
+            - { env: "m5stack-tab5"               }
+            - { env: "m5stack-paper-s3"           }
+            - { env: "m5stack-paper"              }
+            - { env: "m5stack-paper-color"        }
+            - { env: "m5stack-sticks3"            }
+            - { env: "headless-esp32s3-4mb"       }
+            - { env: "headless-esp32s3-8mb"       }
+            - { env: "headless-esp32s3-16mb"      }
+            - { env: "headless-esp32-4mb"         }
+            - { env: "headless-esp32-8mb"         }
+            - { env: "CYD-2432S028"               }
+            - { env: "CYD-2-USB"                  }
+            - { env: "CYD-2432W328C_2"            }
+            - { env: "CYD-2432W328C"              }
+            - { env: "CYD-2432W328R"              }
+            - { env: "CYD-2432S024R"              }
+            - { env: "CYD-2432S022C"              }
+            - { env: "CYD-2432S032C"              }
+            - { env: "CYD-2432S032R"              }
+            - { env: "CYD-3248S035R"              }
+            - { env: "CYD-3248S035C"              }
+            - { env: "CYD-8048S043C"              }
+            - { env: "CYD-8048W550C"              }
+            - { env: "NM-CYD-C5"                  }
+            - { env: "CYD-3248W535C"              }
+            - { env: "CYD-4827S043R"              }
+            - { env: "lilygo-t-dongle-s3-tft"     }
+            - { env: "lilygo-t-dongle-c5-tft"     }
+            - { env: "lilygo-t-display-S3-touch"  }
+            - { env: "lilygo-t-display-S3-pro"    }
+            - { env: "lilygo-t-embed"             }
+            - { env: "lilygo-t-embed-cc1101"      }
+            - { env: "lilygo-t-lora-pager"        }
+            - { env: "lilygo-t-deck-plus"         }
+            - { env: "lilygo-t-deck"              }
+            - { env: "lilygo-t-deck-pro"          }
+            - { env: "lilygo-t5-epaper-s3-pro"    }
+            - { env: "lilygo-t-hmi"               }
+            - { env: "lilygo-t-display-S3-amoled" }
+            - { env: "lilygo-t-display-S3-amoled-plus" }
+            - { env: "lilygo-t-watch-s3"          }
+            - { env: "lilygo-t-watch-ultra"       }
+            - { env: "reaper"                     }
+            - { env: "smoochiee-board"            }
+            - { env: "Marauder-v4-OG"             }
+            - { env: "Marauder-v61"               }
+            - { env: "Marauder-v7"                }
+            - { env: "Marauder-v8"                }
+            - { env: "pancake"                    }
+            - { env: "Marauder-Mini"              }
+            - { env: "Awok-Mini"                  }
+            - { env: "Awok-Touch"                 }
+            - { env: "WaveSentry-R1"              }
+            - { env: "Phantom_S024R"              }
+            - { env: "elecrow-24B"                }
+            - { env: "elecrow-28B"                }
+            - { env: "elecrow-35B"                }
+            - { env: "elecrow-35Bv2_2"            }
+            - { env: "waveshare-esp32-s3-lcd-147" }
+            - { env: "xueersi-xiaomiao" }
+
+      steps:
+          - uses: actions/checkout@v5
+            with:
+              submodules: true
+
+          - id: build
+            name: setup Python
+            uses: actions/setup-python@v6
+            with:
+              python-version: "3.13"
+
+          - name: Cache pip
+            uses: actions/cache@v5
+            with:
+              path: ~/.cache/pip
+              key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+              restore-keys: |
+                ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+                ${{ runner.os }}-pip-
+
+          - name: Cache PlatformIO Framework
+            uses: actions/cache@v5
+            with:
+              path: |
+                .pio/core
+              key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini') }}
+              restore-keys: |
+                ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini') }}
+                ${{ runner.os }}-platformio-
+
+          - name: PIO libraries cache
+            uses: actions/cache@v5
+            with:
+              path: |
+                .pio/libdeps
+              key: ${{ runner.os }}-pio-${{ matrix.board.env }}-${{ hashFiles('platformio.ini') }}
+              restore-keys: |
+                ${{ runner.os }}-pio-${{ matrix.board.env }}-${{ hashFiles('platformio.ini') }}
+                ${{ runner.os }}-pio-${{ matrix.board.env }}-
+
+          - name: Install dependencies
+            run: |
+              pip install requests esptool platformio
+
+              if [[ "${{ github.ref_type }}" == "tag" ]]; then
+                version=${{ github.ref_name }}
+              else
+                version="${GITHUB_SHA::7}"
+              fi
+
+              export LAUNCHER_VERSION="$version"
+
+              python - <<'PY'
+              import json
+              import os
+              import re
+              from pathlib import Path
+
+              platformio_ini = Path("platformio.ini")
+              contents = platformio_ini.read_text()
+
+              def c_string(value):
+                  return "'" + json.dumps(value) + "'"
+
+              replacements = {
+                  "LAUNCHER": c_string(os.environ["LAUNCHER_VERSION"]),
+                  "WIFI_ENC_KEY": c_string(os.environ["WIFI_ENC_KEY"]),
+              }
+
+              for name, value in replacements.items():
+                  contents = re.sub(
+                      rf"^(\s*-D{name}=).*$",
+                      rf"\g<1>{value}",
+                      contents,
+                      count=1,
+                      flags=re.MULTILINE,
+                  )
+
+              platformio_ini.write_text(contents)
+              PY
+            env:
+              WIFI_ENC_KEY: ${{ secrets.WIFI_ENC_KEY }}
+
+          - name: Run Compile
+            run: |
+              platformio run -e ${{ matrix.board.env }}
+
+          - name: Upload Artifacts
+            uses: actions/upload-artifact@v6
+            with:
+              name: Artifacts-${{ matrix.board.env }}
+              path: |
+                Launcher-*.bin
+              retention-days: 5
+              if-no-files-found: error
+
+    post_compile_steps:
+      name: Post-compile steps
+      runs-on: ubuntu-latest
+      needs: compile_sketch
+      if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') || github.ref_type == 'tag'
+      steps:
+        - uses: actions/checkout@v5
+          with:
+            submodules: false
+
+        - name: Download all artifacts
+          uses: actions/download-artifact@v7
+          with:
+            path: ~/LauncherArtifacts
+
+        - name: Move artifacts to the correct folders
+          run: |
+            set -x
+            pwd
+            mkdir -p artifacts
+            cp -f ~/LauncherArtifacts/*/*.bin artifacts
+            tree
+
+        - name: Analyze artifact partition usage
+          run: |
+            python support_files/size_analisys.py --on-folder artifacts --output size_analisys.txt
+
+        - name: Ensure releases exist and get IDs
+          id: get_release
+          uses: actions/github-script@v8
+          with:
+            script: |
+              const ensureByTag = async (tag, prerelease=true) => {
+                try {
+                  const { data } = await github.rest.repos.getReleaseByTag({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    tag
+                  });
+                  return data.id;
+                } catch (e) {
+                  if (e.status !== 404) throw e;
+                  const { data } = await github.rest.repos.createRelease({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    tag_name: tag,
+                    name: tag,
+                    prerelease
+                  });
+                  return data.id;
+                }
+              };
+
+              const betaId = await ensureByTag('beta');
+              const lastId = await ensureByTag('last');
+
+              core.setOutput('beta', String(betaId));
+              core.setOutput('last', String(lastId));
+
+        - name: Get current sha
+          id: get_sha
+          run: |
+            echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+        - name: Delete old betaRelease assets
+          uses: actions/github-script@v8
+          with:
+            script: |
+              const release_id = ${{ steps.get_release.outputs.beta }};
+              const assets = await github.rest.repos.listReleaseAssets({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release_id
+              });
+              for (const asset of assets.data) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: asset.id
+                });
+              }
+
+        - name: Upload new beta asset
+          uses: softprops/action-gh-release@v2
+          with:
+            name: betaRelease commit (${{ steps.get_sha.outputs.GITHUB_SHA_SHORT }})
+            tag_name: beta
+            files: |
+              artifacts/**
+              size_analisys.txt
+            fail_on_unmatched_files: false
+            make_latest: false
+            generate_release_notes: false
+
+        - name: Trigger WebPage deploy (workflow_dispatch)
+          if:  github.ref_type != 'tag'
+          env:
+            GH_TOKEN: ${{ github.token }}
+          run: |
+            gh workflow list
+            gh workflow run .github/workflows/deploy.yml --ref WebPage
+
+    create_release:
+      runs-on: ubuntu-latest
+      environment: github_release
+      needs: [compile_sketch]
+      if: github.ref_type == 'tag'
+      steps:
+      - uses: actions/checkout@v5
+
+      - id: launcher_version
+        name: Get Version
+        run: |
+          set -x
+          version=${{ github.ref_name }}
+          echo "version=${version}" > $GITHUB_OUTPUT
+
+      - name: setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install M5Burner post dependencies
+        run: |
+          pip install requests
+
+      - uses: actions/download-artifact@v7
+        with:
+          merge-multiple: true
+
+      - name: Create Release ${{ steps.launcher_version.outputs.version }}
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Launcher Release ${{ steps.launcher_version.outputs.version }}
+          tag_name: ${{ steps.launcher_version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            Launcher-*.bin
+
+      - name: Upload and publish on M5Burner
+        env:
+          M5BURNER_USER: ${{ secrets.M5BURNER_USER }}
+          M5BURNER_PWD: ${{ secrets.M5BURNER_PWD }}
+        run: |
+          python support_files/m5burner_post.py \
+            --user "$M5BURNER_USER" \
+            --password "$M5BURNER_PWD" \
+            --tag "${{ steps.launcher_version.outputs.version }}"
+
+      - name: Trigger WebPage deploy (workflow_dispatch)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow list
+          gh workflow run .github/workflows/deploy.yml --ref WebPage
+

@@ -1,0 +1,72 @@
+{
+  "flashSize": 16777216,
+  "runningOffset": 1114112,
+  "entries": [
+    {
+      "type": 1,
+      "subtype": 2,
+      "label": "nvs",
+      "offset": 36864,
+      "size": 20480,
+      "flags": 0
+    },
+    {
+      "type": 1,
+      "subtype": 0,
+      "label": "otadata",
+      "offset": 57344,
+      "size": 8192,
+      "flags": 0
+    },
+    {
+      "type": 0,
+      "subtype": 0,
+      "label": "factory",
+      "offset": 65536,
+      "size": 1048576,
+      "flags": 0
+    },
+    {
+      "type": 0,
+      "subtype": 16,
+      "label": "app1",
+      "offset": 1114112,
+      "size": 2097152,
+      "flags": 0,
+      "appName": "Bruce",
+      "dataLabels": [
+        "spiffs"
+      ]
+    },
+    {
+      "type": 1,
+      "subtype": 130,
+      "label": "spiffs",
+      "offset": 3211264,
+      "size": 1048576,
+      "flags": 0,
+      "appName": "Bruce"
+    },
+    {
+      "type": 0,
+      "subtype": 17,
+      "label": "app2",
+      "offset": 4259840,
+      "size": 2097152,
+      "flags": 0,
+      "appName": "Marauder",
+      "dataLabels": [
+        "vfs"
+      ]
+    },
+    {
+      "type": 1,
+      "subtype": 129,
+      "label": "vfs",
+      "offset": 6356992,
+      "size": 2097152,
+      "flags": 0,
+      "appName": "Marauder"
+    }
+  ]
+}

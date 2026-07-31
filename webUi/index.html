@@ -1,0 +1,89 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="w">
+  <div class="card">
+    <h1>&#11835; LAUNCHER &#11835;</h1>
+    <div class="row" style="margin-bottom:6px">
+      <div class="tag">v <b id="firmwareVersion">&#8230;</b></div>
+    </div>
+  </div>
+  <div class="card">
+    <form id="save" enctype="multipart/form-data" method="post">
+      <input type="hidden" id="actualFolder" name="actualFolder" value="/">
+    </form>
+    <button class="hbg" onclick="toggleMenu()">&#9776; Menu</button>
+    <div class="row" id="menu">
+      <button onclick="toggleConfigOverlay()">&#9881; Config</button>
+      <button onclick="callOTA()">&#8593; OTA</button>
+      <button onclick="listFilesButton('/')">&#128193; Files</button>
+      <button onclick="loadPartitions()">&#128202; Partitions</button>
+      <button onclick="window.open('https://bmorcelli.github.io/Launcher/catalog.html','_blank','noopener,noreferrer')">Firmware list &#8599;</button>
+    </div>
+  </div>
+  <div id="status"></div>
+  <div id="detailsheader"></div>
+  <div id="drop-area" class="drop-area"><div id="details"></div></div>
+  <div id="OTAdetails" style="display:none">
+    <input type="file" id="fileInput" onchange="analyzeFile()" style="display:none" accept=".bin">
+    <div id="analysisOutput"></div>
+    <div id="spiffsInfo" style="display:none">
+      <p><b>SPIFFS</b>: Flash file system for ESP32. Some apps like <b>OrcaOne</b> require it.</p>
+    </div>
+  </div>
+  <div id="updetailsheader"></div>
+  <div id="updetails"></div>
+</div>
+<div id="nvs" class="modal">
+  <div class="mhdr">
+    <span class="mtitle">NVS Config</span>
+    <span><button onclick="saveNvs()">&#128190; Save</button> <button onclick="_('nvs').style.display='none'">&#10006;</button></span>
+  </div>
+  <div id="nvs-body"></div>
+</div>
+<div id="editor" class="modal">
+  <div class="mhdr">
+    <span id="editor-title" class="mtitle"></span>
+    <span><button onclick="saveFile()">&#128190; Save</button> <button onclick="_('editor').style.display='none'">&#10006;</button></span>
+  </div>
+  <textarea id="editor-content"></textarea>
+</div>
+<div id="upmodal">
+  <div id="upbox">
+    <h3>Uploading</h3>
+    <div id="uplist"></div>
+  </div>
+</div>
+<div id="configOverlay" onclick="closeConfigOverlay(event)">
+  <div id="configBox">
+    <div class="mhdr">
+      <span class="mtitle">Config</span>
+      <span><button onclick="toggleConfigOverlay()">&#10006;</button></span>
+    </div>
+    <div class="row" style="flex-direction:column;align-items:stretch">
+      <button onclick="rebootButton()">&#8635; Reboot</button>
+      <button onclick="SDConfig()">SD Pins</button>
+      <button onclick="WifiConfig('ssid')">WiFi</button>
+      <button onclick="WifiConfig('usr')">User/Pass</button>
+      <button onclick="loadNvs()">&#9881; NVS</button>
+      <button onclick="logoutButton()">&#10006; Logout</button>
+    </div>
+  </div>
+</div>
+<div id="pmanResizeOverlay" onclick="closePmanResizeOverlay(event)">
+  <div id="pmanResizeBox">
+    <div class="mhdr">
+      <span id="pmanResizeTitle" class="mtitle">Resize</span>
+      <span><button onclick="pmanResizeConfirm()">&#128190; Apply</button> <button onclick="_('pmanResizeOverlay').classList.remove('open')">&#10006;</button></span>
+    </div>
+    <div id="pmanResizeBody"></div>
+  </div>
+</div>
+<script src="scripts.js"></script>
+</body>
+</html>
