@@ -35,11 +35,27 @@ bool setupSdCard() {
 #if defined(USE_SD_MMC) && defined(PIN_SD_CLK) && defined(PIN_SD_CMD) && defined(PIN_SD_D0)
     SD_MMC.end();
     vTaskDelay(pdTICKS_TO_MS(20));
+#if defined(SDMMC_USE_4BIT) && defined(PIN_SD_D1) && defined(PIN_SD_D2) && defined(PIN_SD_D3)
+    bool sdPinsReady = SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0, PIN_SD_D1, PIN_SD_D2, PIN_SD_D3);
+    vTaskDelay(pdTICKS_TO_MS(10));
+    bool sdReady = sdPinsReady && SD_MMC.begin("/sdcard", false, false);
+    if (!sdReady) {
+        launcherConsolePrintln("Four-bit SDMMC mount failed; retrying in one-bit mode");
+        SD_MMC.end();
+        vTaskDelay(pdTICKS_TO_MS(20));
+        sdPinsReady = SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0);
+        vTaskDelay(pdTICKS_TO_MS(10));
+        sdReady = sdPinsReady && SD_MMC.begin("/sdcard", true, false);
+    }
+    if (!sdReady)
+#else
     SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0);
     vTaskDelay(pdTICKS_TO_MS(10));
-#else
-#endif
     if (!SD_MMC.begin("/sdcard", true, false)) // One bit mode, don't auto-format
+#endif
+#else
+    if (!SD_MMC.begin("/sdcard", true, false))
+#endif
 #elif (TFT_MOSI == SDCARD_MOSI)
     if (!SDM.begin(_cs)) // https://github.com/Bodmer/TFT_eSPI/discussions/2420
 #elif defined(HEADLESS)
@@ -807,7 +823,10 @@ void updateFromSD(const String &path) {
 
     if (partitionEntry[0] != 0xAA || partitionEntry[1] != 0x50 || partitionEntry[2] != 0x01) {
         app_size = effectiveSdAppSize(file, 0, file.size());
-        if (!installFromSdDynamic(file, path, app_size, 0, dataPartitions)) { goto Exit; }
+        if (!installFromSdDynamic(file, path, app_size, 0, dataPartitions)) {
+            file.close();
+            return;
+        }
         file.close();
         tft->fillScreen(BGCOLOR);
 
@@ -959,7 +978,10 @@ void updateFromSD(const String &path) {
         log_i("Appsize: %d", app_size);
         log_i("Data partitions: %d", dataPartitions.size());
 
-        if (!installFromSdDynamic(file, path, app_size, app_offset, dataPartitions)) { goto Exit; }
+        if (!installFromSdDynamic(file, path, app_size, app_offset, dataPartitions)) {
+            file.close();
+            return;
+        }
         displayMsg("Complete");
 
         return (void)releaseHeapObjectsAndReboot();

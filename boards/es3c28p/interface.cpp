@@ -25,7 +25,6 @@
 #ifndef TOUCH_INT
 #define TOUCH_INT 17
 #endif
-
 #define FT6336_ADDR 0x38
 #define FT6336_TD_STATUS 0x02
 #define FT6336_T1_XH 0x03
@@ -57,24 +56,33 @@ static bool ft6336GetPoint(LTouchPoint *point) {
     uint16_t rawY;
     if (!ft6336ReadRaw(&rawX, &rawY)) return false;
 
-    switch (rotation % 4) {
+    const uint8_t touchRotation = rotation & 0x03;
+    int32_t x = 0;
+    int32_t y = 0;
+
+    switch (touchRotation) {
         case 0:
-            point->x = rawX;
-            point->y = rawY;
+            x = rawX;
+            y = rawY;
             break;
         case 1:
-            point->x = rawY;
-            point->y = TFT_WIDTH - rawX;
+            x = rawY;
+            y = TFT_WIDTH - 1 - rawX;
             break;
         case 2:
-            point->x = TFT_WIDTH - rawX;
-            point->y = TFT_HEIGHT - rawY;
+            x = TFT_WIDTH - 1 - rawX;
+            y = TFT_HEIGHT - 1 - rawY;
             break;
         case 3:
-            point->x = TFT_HEIGHT - rawY;
-            point->y = rawX;
+            x = TFT_HEIGHT - 1 - rawY;
+            y = rawX;
             break;
     }
+
+    const int32_t logicalWidth = (rotation & 1) ? TFT_HEIGHT : TFT_WIDTH;
+    const int32_t logicalHeight = (rotation & 1) ? TFT_WIDTH : TFT_HEIGHT;
+    point->x = constrain(x, 0L, logicalWidth - 1);
+    point->y = constrain(y, 0L, logicalHeight - 1);
 
     point->pressed = true;
     return true;

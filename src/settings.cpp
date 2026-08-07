@@ -16,6 +16,7 @@
 #include <SD.h>
 #include <cstdio>
 #include <cstdlib>
+#include <esp_wifi_types.h>
 #include <globals.h>
 #include <memory>
 #if !defined(SDM_SD)
@@ -236,6 +237,74 @@ bool setWifiCredential(const String &ssidValue, const String &passwordValue, boo
     return true;
 }
 
+std::vector<String> getSavedWifiSsids() {
+    std::vector<String> result;
+    JsonArray wifiList = ensureWifiListInternal();
+    if (wifiList.isNull()) return result;
+    for (JsonObject wifiEntry : wifiList) {
+        String savedSsid = wifiEntry["ssid"].as<String>();
+        if (!savedSsid.isEmpty() && savedSsid != "myNetSSID") result.push_back(savedSsid);
+    }
+    return result;
+}
+
+bool removeWifiCredential(const String &ssidValue, bool persist) {
+    JsonArray wifiList = ensureWifiListInternal();
+    if (wifiList.isNull()) return false;
+    for (size_t i = 0; i < wifiList.size(); ++i) {
+        if (wifiList[i]["ssid"].as<String>() == ssidValue) {
+            wifiList.remove(i);
+            if (persist) saveConfigs();
+            return true;
+        }
+    }
+    return false;
+}
+
+void savedWifiMenu() {
+    while (!returnToMenu) {
+        std::vector<String> saved = getSavedWifiSsids();
+        options.clear();
+        for (const String &savedSsid : saved) {
+            options.push_back({savedSsid, [=]() {
+                                   bool done = false;
+                                   bool reveal = false;
+                                   while (!done && !returnToMenu) {
+                                       String savedPassword;
+                                       getWifiCredential(savedSsid, savedPassword);
+                                       String shown;
+                                       for (size_t i = 0; i < min((size_t)24, savedPassword.length()); ++i)
+                                           shown += '*';
+                                       if (reveal) shown = savedPassword;
+
+                                       options = {
+                                           {"Connect", [&]() {
+                                                wifiConnect(savedSsid, WIFI_AUTH_WPA2_PSK);
+                                                done = true;
+                                            }},
+                                           {"Edit and connect", [&]() {
+                                                wifiConnect(savedSsid, WIFI_AUTH_WPA2_PSK, false, true);
+                                                done = true;
+                                            }},
+                                           {reveal ? "Password: " + shown : "Password: " + shown, []() {}},
+                                           {reveal ? "Hide password" : "Show password", [&]() { reveal = !reveal; }},
+                                           {"Forget network", [&]() {
+                                                removeWifiCredential(savedSsid, true);
+                                                done = true;
+                                            }},
+                                           {"Back", [&]() { done = true; }},
+                                       };
+                                       loopOptions(options);
+                                   }
+                               }});
+        }
+        if (saved.empty()) options.push_back({"No saved networks", []() {}});
+        options.push_back({"Back", [&]() { return; }});
+        int selected = loopOptions(options);
+        if (selected < 0 || selected == (int)options.size() - 1) return;
+    }
+}
+
 void settings_menu() {
     int idx = 0;
     returnToMenu = false;
@@ -297,6 +366,7 @@ void settings_menu() {
                                saveConfigs();
                            }});
         options.push_back({"Partition Manager", [=]() { partList(); }});
+        options.push_back({"Saved WiFi", [=]() { savedWifiMenu(); }});
 
         if (dev_mode) options.push_back({"Boot Animation", [=]() { initDisplayLoop(); }});
         if (dev_mode) options.push_back({"Deactivate Dev", [=]() { dev_mode = false; }});
@@ -359,6 +429,15 @@ int gsetRotation(bool set) {
     } else result = rotation;
 
     if (set) {
+#if defined(TOUCH_FT6336)
+        options = {
+            {"Default (landscape)",        [&]() { result = ROTATION; }},
+            {"Portrait - 0 deg",           [&]() { result = 0; }       },
+            {"Landscape - 90 deg",         [&]() { result = 1; }       },
+            {"Portrait - 180 deg",         [&]() { result = 2; }       },
+            {"Landscape - 270 deg",        [&]() { result = 3; }       }
+        };
+#else
         options = {
             {"Default",                                              [&]() { result = ROTATION; }          },
 #if TFT_WIDTH >= 200 && TFT_HEIGHT >= 200
@@ -370,6 +449,7 @@ int gsetRotation(bool set) {
 #endif
             {String("Landscape " + String(DRV + 2)).c_str(),         [&]() { result = DRV + 2; }           }
         };
+#endif
         loopOptions(options);
         rotation = result;
 
@@ -389,6 +469,9 @@ int gsetRotation(bool set) {
             tftWidth = TFT_WIDTH;
         }
 
+        // Clear once in the old coordinate space and once after rotation. This
+        // prevents stale menu pixels remaining in the newly exposed area.
+        tft->fillScreen(BGCOLOR);
         tft->setRotation(result);
         tft->fillScreen(BGCOLOR);
     }

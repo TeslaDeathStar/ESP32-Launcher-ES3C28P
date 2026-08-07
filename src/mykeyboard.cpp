@@ -246,6 +246,7 @@ String generalKeyboard(
     bool caps = false;
     bool last_caps = false;
     bool selection_made = false; // used for detecting if an key or a button was selected
+    bool touchLocked = false;    // accept one key per physical touch
     bool redraw = true;
     long last_input_time = launcherMillis(); // used for input debouncing
     // cursor coordinates: kep track of where the next character should be printed (in screen pixels)
@@ -599,7 +600,9 @@ String generalKeyboard(
 #if defined(DONT_USE_INPUT_TASK)
             check(AnyKeyPress);
 #endif
-            if (touchPoint.pressed) {
+            if (!touchPoint.pressed) touchLocked = false;
+            if (touchPoint.pressed && !touchLocked) {
+                touchLocked = true;
                 // If using touchscreen and buttons_strings, reset the navigation states to avoid inconsistent
                 // behavior, and reset the navigation coords to the OK button.
                 SelPress = false;
@@ -651,7 +654,6 @@ String generalKeyboard(
 
                 if (touchHandled) {
                     wakeUpScreen();
-                    touchPoint.Clear();
                     redraw = true;
                 }
             }
@@ -963,14 +965,140 @@ String generalKeyboard(
     return current_text;
 }
 
-/// This calls the QUERTY keyboard. Returns the user typed strings, return the ASCII ESC character
-/// if the operation was cancelled
+// The ES3C28P has no physical keys and its release event can arrive after the
+// menu action opens the shared keyboard. Use a board-specific keyboard that
+// drains that touch first and accepts one character per press.
+#if defined(TOUCH_FT6336)
+static void es3c28pWaitTouchRelease() {
+    const unsigned long started = launcherMillis();
+    do {
+        InputHandler();
+        launcherDelayMs(10);
+    } while (touchPoint.pressed && launcherMillis() - started < 1500);
+    resetGlobals();
+}
+
+static String es3c28pTouchKeyboard(String value, int maxSize, const String &title) {
+    static const char *keyModes[][4] = {
+        {"1234567890", "qwertyuiop", "asdfghjkl-", "zxcvbnm._@"},
+        {"1234567890", "QWERTYUIOP", "ASDFGHJKL-", "ZXCVBNM._@"},
+        {"1234567890", "!@#$%^&*()", "-_=+[]{};:", "',.<>?/\\|~"},
+    };
+    static const char *modeNames[] = {"abc", "ABC", "#+="};
+
+    int mode = 0;
+    bool reveal = false;
+    bool redraw = true;
+    bool touchDown = false;
+    es3c28pWaitTouchRelease();
+
+    while (true) {
+        const int width = tft->width();
+        const int height = tft->height();
+        const int headerHeight = 18;
+        const int textHeight = 30;
+        const int keyboardTop = headerHeight + textHeight + 5;
+        const int controlHeight = 34;
+        const int keyHeight = max(24, (height - keyboardTop - controlHeight) / 4);
+        const int keyWidth = width / 10;
+        const int controlsTop = keyboardTop + keyHeight * 4;
+        const int controlWidth = width / 6;
+
+        if (redraw) {
+            tft->fillScreen(BGCOLOR);
+            tft->setTextSize(1);
+            tft->setTextColor(FGCOLOR, BGCOLOR);
+            tft->drawString(title.substring(0, 30), 4, 4);
+
+            tft->drawRect(2, headerHeight, width - 4, textHeight, FGCOLOR);
+            String shown;
+            if (reveal) shown = value;
+            else {
+                const size_t visibleLength = min((size_t)36, value.length());
+                for (size_t i = 0; i < visibleLength; ++i) shown += '*';
+                if (value.length() > visibleLength) shown += "...";
+            }
+            tft->setTextSize(width < 300 ? 1 : 2);
+            tft->drawString(shown, 6, headerHeight + 8);
+
+            tft->setTextSize(width < 300 ? 1 : 2);
+            for (int row = 0; row < 4; ++row) {
+                for (int col = 0; col < 10; ++col) {
+                    const int x = col * keyWidth;
+                    const int y = keyboardTop + row * keyHeight;
+                    const int w = col == 9 ? width - x : keyWidth;
+                    tft->drawRect(x, y, w, keyHeight, FGCOLOR);
+                    String key(keyModes[mode][row][col]);
+                    tft->drawCentreString(key, x + w / 2, y + keyHeight / 2 - 5, 1);
+                }
+            }
+
+            static const char *controlLabels[] = {"SHOW", "MODE", "DEL", "SPACE", "CANCEL", "OK"};
+            tft->setTextSize(1);
+            for (int i = 0; i < 6; ++i) {
+                const int x = i * controlWidth;
+                const int w = i == 5 ? width - x : controlWidth;
+                tft->fillRect(x, controlsTop, w, height - controlsTop, i == 5 ? DARKGREY : BGCOLOR);
+                tft->drawRect(x, controlsTop, w, height - controlsTop, FGCOLOR);
+                String label = i == 0 ? (reveal ? "HIDE" : "SHOW")
+                                      : i == 1 ? String(modeNames[mode]) : String(controlLabels[i]);
+                tft->drawCentreString(label, x + w / 2, controlsTop + 11, 1);
+            }
+            tft->display(false);
+            redraw = false;
+        }
+
+        InputHandler();
+        if (!touchPoint.pressed) {
+            touchDown = false;
+            launcherDelayMs(8);
+            continue;
+        }
+        if (touchDown) {
+            launcherDelayMs(8);
+            continue;
+        }
+        touchDown = true;
+
+        const int tx = touchPoint.x;
+        const int ty = touchPoint.y;
+        if (ty >= keyboardTop && ty < controlsTop) {
+            const int row = constrain((ty - keyboardTop) / keyHeight, 0, 3);
+            const int col = constrain(tx / keyWidth, 0, 9);
+            if ((int)value.length() < maxSize) value += keyModes[mode][row][col];
+            redraw = true;
+        } else if (ty >= controlsTop) {
+            const int action = constrain(tx / controlWidth, 0, 5);
+            if (action == 0) reveal = !reveal;
+            else if (action == 1) mode = (mode + 1) % 3;
+            else if (action == 2 && !value.isEmpty()) value.remove(value.length() - 1);
+            else if (action == 3 && (int)value.length() < maxSize) value += ' ';
+            else if (action == 4) {
+                es3c28pWaitTouchRelease();
+                tft->fillScreen(BGCOLOR);
+                return String(KEY_ESCAPE);
+            } else if (action == 5) {
+                es3c28pWaitTouchRelease();
+                tft->fillScreen(BGCOLOR);
+                return value;
+            }
+            redraw = true;
+        }
+    }
+}
+#endif
+
+/// This calls the QWERTY keyboard. Returns the user typed string, or ASCII ESC when cancelled.
 String keyboard(String current_text, int max_size, const String &textbox_title) {
+#if defined(TOUCH_FT6336)
+    return es3c28pTouchKeyboard(current_text, max_size, textbox_title);
+#else
     max_FM_size = tftWidth / (LW * FM) - 1;
     max_FP_size = tftWidth / (LW)-2;
     return generalKeyboard<qwerty_keyboard_height, qwerty_keyboard_width>(
         current_text, max_size, textbox_title, qwerty_keyset
     );
+#endif
 }
 
 // /// This calls a keyboard with the characters useful to write hexadecimal codes.

@@ -22,19 +22,67 @@
 
 constexpr int kWifiConnectAttempts = 20;
 
+#ifdef CUSTOM_CATALOG_URL
+bool openCustomCatalog();
+#endif
+
 /***************************************************************************************
 ** Function name: wifiConnect
 ** Description:   Connects to wifiNetwork
 ***************************************************************************************/
-bool wifiConnect(const String &ssid, int encryptation, bool isAP) {
+static String maskPassword(const String &password) {
+    String masked;
+    const size_t count = min((size_t)24, password.length());
+    masked.reserve(count + 3);
+    for (size_t i = 0; i < count; ++i) masked += '*';
+    if (password.length() > count) masked += "...";
+    return masked;
+}
+
+static bool reviewWifiPassword(const String &ssid, String &password) {
+    bool edit = true;
+    bool reveal = false;
+    returnToMenu = false;
+
+    while (true) {
+        if (edit) {
+            String entered = keyboard(password, 63, "WiFi password");
+            if (entered == String(KEY_ESCAPE)) return false;
+            password = entered;
+            edit = false;
+        }
+
+        enum Choice { NONE, TOGGLE, EDIT, CONNECT, CANCEL };
+        Choice choice = NONE;
+        String shown = reveal ? password : maskPassword(password);
+        options = {
+            {"Network: " + ssid, []() {}},
+            {"Password: " + shown, []() {}},
+            {reveal ? "Hide password" : "Show password", [&]() { choice = TOGGLE; }},
+            {"Edit password", [&]() { choice = EDIT; }},
+            {"Connect and save", [&]() { choice = CONNECT; }},
+            {"Cancel", [&]() { choice = CANCEL; }},
+        };
+        loopOptions(options);
+
+        if (choice == TOGGLE) reveal = !reveal;
+        else if (choice == EDIT) edit = true;
+        else if (choice == CONNECT) return true;
+        else if (choice == CANCEL || returnToMenu) return false;
+    }
+}
+
+bool wifiConnect(const String &ssid, int encryptation, bool isAP, bool forcePasswordPrompt) {
     RAM_LOG(isAP ? "wifiConnect-ap-start" : "wifiConnect-sta-start");
     if (!isAP) {
         bool found = false;
         bool wrongPass = false;
+        bool passwordChanged = false;
+        const bool secureNetwork = encryptation != WIFI_AUTH_OPEN;
         getConfigs();
 
         String knownPwd;
-        if (getWifiCredential(ssid, knownPwd)) {
+        if (getWifiCredential(ssid, knownPwd) && !knownPwd.isEmpty()) {
             pwd = knownPwd;
             found = true;
             launcherConsolePrintf("Found SSID: %s\n", ssid.c_str());
@@ -42,29 +90,17 @@ bool wifiConnect(const String &ssid, int encryptation, bool isAP) {
         launcherConsolePrintf("sdcardMounted: %d\n", sdcardMounted);
 
     Retry:
-        if (!found || wrongPass) {
-            if (encryptation > 0) {
-                pwd = keyboard(pwd, 63, "Network Password:");
-                if (pwd == String(KEY_ESCAPE)) {
+        if (!found || wrongPass || forcePasswordPrompt) {
+            if (secureNetwork) {
+                if (!reviewWifiPassword(ssid, pwd)) {
                     returnToMenu = true;
                     launcherDelayMs(0);
                     return false;
                 }
-            }
-
-            if (!found) {
-                if (setWifiCredential(ssid, pwd)) {
-                    found = true;
-                    launcherConsolePrintf("wifiConnect: ssid->%s, pwd->%s\n", ssid.c_str(), pwd.c_str());
-                    saveConfigs();
-                } else {
-                    launcherConsolePrintln("wifiConnect: failed to store new WiFi entry");
-                }
-            } else if (wrongPass) {
-                if (setWifiCredential(ssid, pwd)) {
-                    launcherConsolePrintf("Mudou pwd de SSID: %s\n", ssid.c_str());
-                    saveConfigs();
-                }
+                passwordChanged = true;
+                forcePasswordPrompt = false;
+            } else {
+                pwd = "";
             }
         }
 
@@ -82,6 +118,7 @@ bool wifiConnect(const String &ssid, int encryptation, bool isAP) {
             if (connectState == LauncherWifiConnectState::WrongPassword) {
                 displayError("Wrong Password");
                 wrongPass = true;
+                forcePasswordPrompt = true;
                 goto Retry;
             }
             vTaskDelay(500 / portTICK_PERIOD_MS);
@@ -98,6 +135,15 @@ bool wifiConnect(const String &ssid, int encryptation, bool isAP) {
                 return false;
             }
             tft->display(false);
+        }
+
+        if (secureNetwork && (!found || passwordChanged)) {
+            if (setWifiCredential(ssid, pwd, true)) {
+                found = true;
+                launcherConsolePrintf("Saved WiFi credential for %s\n", ssid.c_str());
+            } else {
+                launcherConsolePrintf("Failed to save WiFi credential for %s\n", ssid.c_str());
+            }
         }
     } else { // Running in Access point mode
 #if !CONFIG_ESP_HOSTED_ENABLED
@@ -154,6 +200,9 @@ void ota_function() {
     RAM_LOG("ota-start");
     bool fav = false;
     bool upd = false;
+#ifdef CUSTOM_CATALOG_URL
+    bool custom = false;
+#endif
     if (ensureWifiConnected()) {
         // Debug
         // Serial.printf("Favorite size: %d\n", favorite.size());
@@ -164,18 +213,37 @@ void ota_function() {
         if (!dwnJsonPath.endsWith("/")) dwnJsonPath += "/";
         dwnJsonPath += "downloaded.json";
         bool hasDownloads = sdcardMounted && SDM.exists(dwnJsonPath);
-        if (favorite.size() > 0 || hasDownloads) {
+        bool showSourceMenu = favorite.size() > 0 || hasDownloads;
+#ifdef CUSTOM_CATALOG_URL
+        showSourceMenu = true;
+#endif
+        if (showSourceMenu) {
             options.clear();
             options.push_back({"OTA List", [&]() {
                                    fav = false;
                                    upd = false;
+#ifdef CUSTOM_CATALOG_URL
+                                   custom = false;
+#endif
                                }});
+#ifdef CUSTOM_CATALOG_URL
+            options.push_back({CUSTOM_CATALOG_NAME, [&]() {
+                                   custom = true;
+                                   fav = false;
+                                   upd = false;
+                               }});
+#endif
             if (favorite.size() > 0) options.push_back({"Favorite List", [&]() { fav = true; }});
             if (hasDownloads) options.push_back({"Check for Updates", [&]() { upd = true; }});
             options.push_back({"Main Menu", [=]() { returnToMenu = true; }});
             loopOptions(options);
         }
         if (returnToMenu) return;
+#ifdef CUSTOM_CATALOG_URL
+        if (custom) {
+            openCustomCatalog();
+        } else
+#endif
         if (upd) {
             if (checkForUpdates()) loopFirmware(true);
         } else if (fav) {
@@ -625,6 +693,64 @@ bool getInfo(const String &serverUrl, JsonDocument &_doc, JsonDocument *filter =
     resumeInputHandlerTask();
     return false;
 }
+
+#ifdef CUSTOM_CATALOG_URL
+bool openCustomCatalog() {
+    JsonDocument catalog(launcherJsonAllocator());
+    if (!getInfo(String(CUSTOM_CATALOG_URL), catalog)) {
+        displayError("Custom catalog failed");
+        return false;
+    }
+
+    JsonArray apps = catalog["apps"].as<JsonArray>();
+    if (apps.isNull() || apps.size() == 0) {
+        displayError("Catalog is empty");
+        return false;
+    }
+
+    options.clear();
+    for (JsonObject app : apps) {
+        const String name = app["name"].as<String>();
+        const String version = app["version"].as<String>();
+        const String author = app["author"].as<String>();
+        const String url = app["url"].as<String>();
+        if (name.isEmpty() || url.isEmpty()) continue;
+
+        String label = name;
+        if (!version.isEmpty()) label += " " + version;
+        options.push_back({label, [=]() {
+                               bool addFavorite = false;
+                               std::vector<Option> appOptions = {
+                                   {"Install", [=]() { installExtFirmware(url, name); }},
+                               };
+                               if (sdcardMounted) {
+                                   appOptions.push_back({"Download to SD", [=]() {
+                                                            downloadFirmware(
+                                                                "", url, name + "." + version, dwn_path, version
+                                                            );
+                                                        }});
+                                   appOptions.push_back({"Add Favorite", [&]() { addFavorite = true; }});
+                               }
+                               appOptions.push_back({"Author: " + author, []() {}});
+                               appOptions.push_back({"Back", []() {}});
+                               loopOptions(appOptions);
+
+                               if (addFavorite) {
+                                   JsonObject fav = favorite.add<JsonObject>();
+                                   fav["name"] = name + (version.isEmpty() ? "" : " " + version);
+                                   fav["fid"] = "";
+                                   fav["link"] = url;
+                                   saveConfigs();
+                                   displayRedStripe("Favorite saved");
+                                   launcherDelayMs(700);
+                               }
+                           }});
+    }
+    options.push_back({"Main Menu", [=]() { returnToMenu = true; }, ALCOLOR});
+    loopOptions(options);
+    return true;
+}
+#endif
 
 /***************************************************************************************
 ** Function name: GetJsonFromLauncherHub
@@ -1300,7 +1426,7 @@ retry:
 ** Function name: installExtFirmware
 ** Description:   installs External Firmware using OTA grabbing file information from url
 ***************************************************************************************/
-bool installExtFirmware(const String &url) {
+bool installExtFirmware(const String &url, const String &installedName) {
     size_t file_size;
     bool nb = 1;
     std::vector<LauncherInstallDataPartition> dataPartitions;
@@ -1369,7 +1495,7 @@ bool installExtFirmware(const String &url) {
                 dp.copySize = file_size - dp.sourceOffset;
         }
     }
-    installFirmware("", url, PartitionSize, PartitionOffset, nb, dataPartitions, "External OTA");
+    installFirmware("", url, PartitionSize, PartitionOffset, nb, dataPartitions, installedName);
     return true;
 }
 

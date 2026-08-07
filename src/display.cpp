@@ -147,12 +147,30 @@ void setTftDisplay(int x, int y, uint16_t fc, int size, uint16_t bg) {
 ** Description:   Draw touch screen footer
 ***************************************************************************************/
 void TouchFooter(uint16_t color) {
+#if defined(TOUCH_FT6336)
+    const int footerY = tftHeight;
+    const int footerH = FM * LH + 4;
+    const int third = tftWidth / 3;
+    const uint16_t panelColor = 0x0861;
+    const uint16_t edgeColor = 0x03EF;
+
+    tft->fillRect(0, footerY, tftWidth, footerH, panelColor);
+    tft->drawLine(0, footerY, tftWidth - 1, footerY, edgeColor);
+    tft->drawLine(third, footerY + 3, third, footerY + footerH - 3, edgeColor);
+    tft->drawLine(third * 2, footerY + 3, third * 2, footerY + footerH - 3, edgeColor);
+    tft->setTextColor(color, panelColor);
+    tft->setTextSize(FM);
+    tft->drawCentreString("< PREV", third / 2, footerY + 3, 1);
+    tft->drawCentreString("SELECT", third + third / 2, footerY + 3, 1);
+    tft->drawCentreString("NEXT >", third * 2 + third / 2, footerY + 3, 1);
+#else
     tft->drawRoundRect(5 + RES, tftHeight + 2, tftWidth - 10 - 2 * RES, (FM * LH + 4), 5, color);
     tft->setTextColor(color);
     tft->setTextSize(FM);
     tft->drawString("<<<", 11 + RES, tftHeight + 4);
     tft->drawCentreString("SEL", tftWidth / 2, tftHeight + 4, 1);
     tft->drawRightString(">>>", tftWidth - (RES + 11), tftHeight + 4, 1);
+#endif
 }
 
 /***************************************************************************************
@@ -160,12 +178,30 @@ void TouchFooter(uint16_t color) {
 ** Description:   Draw touch screen footer
 ***************************************************************************************/
 void TouchFooter2(uint16_t color) {
+#if defined(TOUCH_FT6336)
+    const int footerY = tftHeight;
+    const int footerH = FM * LH + 4;
+    const int third = tftWidth / 3;
+    const uint16_t panelColor = 0x0861;
+    const uint16_t edgeColor = 0x03EF;
+
+    tft->fillRect(0, footerY, tftWidth, footerH, panelColor);
+    tft->drawLine(0, footerY, tftWidth - 1, footerY, edgeColor);
+    tft->drawLine(third, footerY + 3, third, footerY + footerH - 3, edgeColor);
+    tft->drawLine(third * 2, footerY + 3, third * 2, footerY + footerH - 3, edgeColor);
+    tft->setTextColor(color, panelColor);
+    tft->setTextSize(FM);
+    tft->drawCentreString("< PREV", third / 2, footerY + 3, 1);
+    tft->drawCentreString("LAUNCH", third + third / 2, footerY + 3, 1);
+    tft->drawCentreString("NEXT >", third * 2 + third / 2, footerY + 3, 1);
+#else
     tft->drawRoundRect(5 + RES, tftHeight + 2, tftWidth - 10 - 2 * RES, (FM * LH + 4), 5, color);
     tft->setTextColor(color);
     tft->setTextSize(FM);
     tft->drawString("<<", 11 + RES, tftHeight + 4);
     tft->drawCentreString("LAUNCHER", tftWidth / 2, tftHeight + 4, 1);
     tft->drawRightString(">>", tftWidth - (RES + 11), tftHeight + 4, 1);
+#endif
 }
 
 /***************************************************************************************

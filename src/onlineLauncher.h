@@ -5,7 +5,7 @@
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
 
-bool installExtFirmware(const String &url);
+bool installExtFirmware(const String &url, const String &installedName = "External OTA");
 
 void installFirmware(
     String fid, String file, uint32_t app_size, uint32_t app_offset, bool nb,
@@ -22,7 +22,7 @@ void downloadFirmware(const String &fid, String file, String fileName, String fo
 void saveDownloadedFirmware(const String &folder, const String &fid, const String &version);
 bool checkForUpdates();
 
-bool wifiConnect(const String &ssid, int encryptation, bool isAP = false);
+bool wifiConnect(const String &ssid, int encryptation, bool isAP = false, bool forcePasswordPrompt = false);
 
 bool GetJsonFromLauncherHub(
     uint8_t page = 1, const String &order = "downloads", bool star = false, const String &query = ""
