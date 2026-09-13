@@ -129,6 +129,7 @@ JsonDocument settings;
 std::vector<Option> options;
 
 #include "app_registry.h"
+#include "amy_app.h"
 #include "display.h"
 #include "massStorage.h"
 #include "mykeyboard.h"
@@ -466,6 +467,9 @@ void loop() {
         {"OFF", "Turn off Device", [=]() { powerOff(); }}
     );
 #endif
+    menuItems.push_back(
+        {"AMY", "Chat with Amy (no device controls)", [=]() { loopAmy(); }}
+    );
     opt = menuItems.size(); // number of options in the menu
     update_sd = sdcardMounted;
     while (1) {

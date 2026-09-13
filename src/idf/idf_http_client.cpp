@@ -132,7 +132,7 @@ bool launcherHttpGetRange(
 
 bool launcherHttpPost(
     const char *url, const char *body, size_t bodyLen, String &out, size_t maxSize,
-    LauncherHttpResponse *response
+    LauncherHttpResponse *response, const char *headerKey, const char *headerValue
 ) {
     out = "";
     StringSink sink = {&out, maxSize};
@@ -157,6 +157,7 @@ bool launcherHttpPost(
 
     esp_http_client_set_header(client, "Accept-Encoding", "identity");
     esp_http_client_set_header(client, "Content-Type", "application/json");
+    if (headerKey && headerValue) esp_http_client_set_header(client, headerKey, headerValue);
     esp_http_client_set_post_field(client, body, (int)bodyLen);
 
     esp_err_t err = esp_http_client_perform(client);
